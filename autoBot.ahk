@@ -1,153 +1,179 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
-; --- Değişkenler ---
+; --- OTOMATİK TEMİZLİK ---
+DetectHiddenWindows True
+for id in WinGetList(A_ScriptName) {
+    if (id != A_ScriptHwnd)
+        try WinClose("ahk_id " id)
+}
+
+; --- YÖNETİCİ İZNİ ---
+if !A_IsAdmin {
+    try Run('*RunAs "' A_ScriptFullpath '"')
+    ExitApp()
+}
+
+; --- DEĞİŞKENLER ---
 global IsRunning := false
-global CurrentHotkey := "F1" 
+global CurrentHotkey := "F1"
 global IsListening := false
 
-; --- Arayüz Oluşturma ---
-MyGui := Gui("+AlwaysOnTop", "Pro Multi-Otomasyon v3.3")
+; --- ARAYÜZ OLUŞTURMA ---
+MyGui := Gui("+AlwaysOnTop", "Otomasyon Botu v2.0")
 MyGui.SetFont("s9", "Segoe UI")
 
-; Pencere genişliği 270 olarak varsayalım. 
-; GroupBox 250 genişliğinde ise x10 vererek tam ortalarız.
+; 1. GENEL KONTROL
+MyGui.Add("GroupBox", "x10 y10 w250 h65", "Başlat / Durdur Kısayolu")
+HK_Display := MyGui.Add("Text", "x30 y35 w130 Center +Border", CurrentHotkey)
+SetBtn := MyGui.Add("Button", "x170 y30 w70 h25", "Tuş Ata")
 
-; 1. Başlat/Durdur Tuş Ataması
-MyGui.Add("GroupBox", "x10 y10 w250 h65", "Hotkey Tuşu")
-HK_Display := MyGui.Add("Text", "vHK_Display x30 y35 w130 Center +Border", CurrentHotkey)
-SetBtn := MyGui.Add("Button", "vSetBtn x170 y30 w70 h25", "Tuş Ata")
-SetBtn.OnEvent("Click", StartListening)
+; 2. FARE AYARLARI (Güncellendi)
+MyGui.Add("GroupBox", "x10 y80 w250 h225", "Tıklama Otomasyonu")
+EnableMouse := MyGui.Add("Checkbox", "x20 y100 Checked", "Tıklama açık")
+ModeDrop := MyGui.Add("DropDownList", "x60 y122 w180 Choose1", ["Fare Konumu", "Belirli Koordinat"])
 
-; 2. Fare Ayarları
-MyGui.Add("GroupBox", "x10 y80 w250 h195", "Tıklama Pozisyonu")
-EnableMouse := MyGui.Add("Checkbox", "vEnableMouse x20 y100 Checked", "Fare Tıklaması")
-MyGui.Add("Text", "x20 y125", "Mod:")
-Mode := MyGui.Add("DropDownList", "vMode x60 y122 w180 Choose1", ["Fare Konumu", "Belirli Koordinat"])
-Mode.OnEvent("Change", ToggleCoords)
+XLabel := MyGui.Add("Text", "x20 y155 +Hidden", "X:"), EditX := MyGui.Add("Edit", "x40 y152 w60 +Hidden", "0")
+YLabel := MyGui.Add("Text", "x120 y155 +Hidden", "Y:"), EditY := MyGui.Add("Edit", "x150 y152 w60 +Hidden", "0")
+CaptureBtn := MyGui.Add("Button", "x20 y185 w230 h25 +Hidden", "F3 ile Konum Yakala")
 
-; Koordinat Alt Bölümü
-XLabel := MyGui.Add("Text", "vXLabel x20 y155 +Hidden", "X :")
-EditX := MyGui.Add("Edit", "vEditX x40 y152 w60 +Hidden", "0")
-YLabel := MyGui.Add("Text", "vYLabel x120 y155 +Hidden", "Y :")
-EditY := MyGui.Add("Edit", "vEditY x150 y152 w60 +Hidden", "0")
-CaptureBtn := MyGui.Add("Button", "vCaptureBtn x20 y185 w230 h25 +Hidden", "F3 ile Konum Yakala")
+MyGui.Add("Text", "x20 y220", "Tuş:")
+ClickType := MyGui.Add("DropDownList", "x55 y217 w65 Choose1", ["Left", "Right", "Middle"])
+MouseMode := MyGui.Add("DropDownList", "x125 y217 w115 Choose1", ["Tıkla", "Basılı Tut"])
 
-MyGui.Add("Text", "x20 y220", "Tıklama :")
-ClickType := MyGui.Add("DropDownList", "vClickType x70 y217 w60 Choose1", ["Left", "Right", "Middle"])
-MyGui.Add("Text", "x140 y220", "Hız(ms):")
-MouseDelay := MyGui.Add("Edit", "vMouseDelay x190 y217 w50", "10")
+MyGui.Add("Text", "x20 y260", "Tıklama Aralığı (ms):")
+MouseDelay := MyGui.Add("Edit", "x140 y257 w50", "100")
 
-; 3. Klavye Ayarları
-MyGui.Add("GroupBox", "x10 y285 w250 h90", "Tuş Otomasyonu")
-EnableKey := MyGui.Add("Checkbox", "vEnableKey x20 y305", "Tuş Basımı")
-MyGui.Add("Text", "x20 y335", "Tuş :")
-KeyToSend := MyGui.Add("Edit", "vKeyToSend x55 y332 w50", "u")
-MyGui.Add("Text", "x120 y335", "Gecikme(ms) :")
-KeyDelay := MyGui.Add("Edit", "vKeyDelay x200 y332 w45", "1")
+; 3. KLAVYE AYARLARI
+MyGui.Add("GroupBox", "x10 y315 w250 h115", "Klavye Otomasyonu")
+EnableKey := MyGui.Add("Checkbox", "x20 y335", "Klavye Aktif")
+MyGui.Add("Text", "x20 y365", "Tuş:")
+KeyToSend := MyGui.Add("Edit", "x55 y362 w50", "e")
+KeyMode := MyGui.Add("DropDownList", "x115 y362 w120 Choose1", ["Bas-Bırak", "Basılı Tut"])
+MyGui.Add("Text", "x20 y400", "Tuş Gecikmesi (ms):")
+KeyDelay := MyGui.Add("Edit", "x140 y397 w50", "500")
 
-; Durum Paneli
-MyGui.SetFont("s11 Bold", "Segoe UI")
-MyStatus := MyGui.Add("Text", "vStatus x10 y390 w250 Center cRed", "DURDURULDU")
+; DURUM PANELİ
+MyGui.SetFont("s11 Bold")
+StatusText := MyGui.Add("Text", "x10 y440 w250 Center cRed", "DURDURULDU")
+MyGui.SetFont("s8 Norm")
+MyGui.Add("Text", "x10 y470 w250 Center cGray", "Kapat: ESC + F12 | Konum Al: F3")
 
 MyGui.Show("w270")
 
-; --- Başlangıç Hotkey ---
-Hotkey(CurrentHotkey, ToggleLogic)
+; --- ETKİNLİKLER ---
+ModeDrop.OnEvent("Change", (ctrl, *) => ToggleCoords(ctrl))
+SetBtn.OnEvent("Click", (*) => StartListening())
+MyGui.OnEvent("Close", (*) => SafeExit())
 
-; --- Fonksiyonlar ---
+; --- FONKSİYONLAR ---
 
-StartListening(*) {
+SafeExit(*) {
+    StopAllActions()
+    ExitApp()
+}
+
+StopAllActions() {
+    SetTimer(MouseLoop, 0)
+    SetTimer(KeyLoop, 0)
+    ; Tuşları serbest bırak (Takılı kalmasınlar)
+    try {
+        if (MouseMode.Text = "Basılı Tut")
+            Click(ClickType.Text " Up")
+        if (KeyMode.Text = "Basılı Tut")
+            SendEvent("{" KeyToSend.Value " up}")
+    }
+}
+
+ToggleCoords(ctrl) {
+    show := (ctrl.Text = "Belirli Koordinat")
+    XLabel.Visible := EditX.Visible := YLabel.Visible := EditY.Visible := CaptureBtn.Visible := show
+}
+
+StartListening() {
     global IsListening, CurrentHotkey
     if (IsListening) {
         return
     }
-    
     IsListening := true
-    HK_Display.Value := "Bir tuşa bas..."
-    HK_Display.SetFont("cBlue Bold")
-    
-    ih := InputHook("L1 T5 M")
-    ih.Start()
-    ih.Wait()
-    
+    HK_Display.Value := "Tuş Bekleniyor...", HK_Display.SetFont("cBlue Bold")
+    ih := InputHook("L1 T5 M"), ih.Start(), ih.Wait()
     NewKey := (ih.Input != "") ? ih.Input : ih.EndKey
-    
     if (NewKey != "") {
         try {
             Hotkey(CurrentHotkey, "Off")
             CurrentHotkey := NewKey
-            Hotkey(CurrentHotkey, ToggleLogic)
+            Hotkey(CurrentHotkey, (*) => ToggleLogic())
             HK_Display.Value := CurrentHotkey
-        } catch {
-            MsgBox("Hatalı tuş!")
         }
     }
-    
-    IsListening := false
-    HK_Display.SetFont("cBlack Norm s9")
+    HK_Display.SetFont("cBlack Norm s9"), IsListening := false
 }
 
-ToggleLogic(*) {
+ToggleLogic() {
     global IsRunning
     if (IsRunning) {
         IsRunning := false
-        MyStatus.Value := "DURDURULDU"
-        MyStatus.SetFont("cRed")
-        SetTimer(MouseLoop, 0)
-        SetTimer(KeyLoop, 0)
+        StatusText.Value := "DURDURULDU", StatusText.SetFont("cRed")
+        StopAllActions()
     } else {
         IsRunning := true
-        MyStatus.Value := "ÇALIŞIYOR"
-        MyStatus.SetFont("cGreen")
+        StatusText.Value := "ÇALIŞIYOR", StatusText.SetFont("cGreen")
         
+        ; FARE BAŞLATMA
         if (EnableMouse.Value) {
-            SetTimer(MouseLoop, MouseDelay.Value)
+            if (MouseMode.Text = "Basılı Tut") {
+                if (ModeDrop.Text = "Belirli Koordinat")
+                    Click(ClickType.Text " Down " EditX.Value " " EditY.Value)
+                else
+                    Click(ClickType.Text " Down")
+            } else {
+                SetTimer(MouseLoop, MouseDelay.Value)
+            }
         }
         
+        ; KLAVYE BAŞLATMA
         if (EnableKey.Value) {
-            SetTimer(KeyLoop, KeyDelay.Value)
+            if (KeyMode.Text = "Basılı Tut") {
+                SendEvent("{" KeyToSend.Value " down}")
+            } else {
+                SetTimer(KeyLoop, KeyDelay.Value)
+            }
         }
     }
 }
 
 MouseLoop() {
-    global IsRunning
     if (!IsRunning) {
         return
     }
-    
     btn := ClickType.Text
-    if (Mode.Text = "Belirli Koordinat") {
+    if (ModeDrop.Text = "Belirli Koordinat")
         Click(btn " " EditX.Value " " EditY.Value)
-    } else {
+    else
         Click(btn)
-    }
 }
 
 KeyLoop() {
-    global IsRunning
     if (!IsRunning) {
         return
     }
-    Send(KeyToSend.Value)
-}
-
-ToggleCoords(*) {
-    show := (Mode.Text = "Belirli Koordinat")
-    XLabel.Visible := show
-    EditX.Visible := show
-    YLabel.Visible := show
-    EditY.Visible := show
-    CaptureBtn.Visible := show
-}
-
-F3:: {
-    if (Mode.Text = "Belirli Koordinat") {
-        MouseGetPos(&outX, &outY)
-        EditX.Value := outX
-        EditY.Value := outY
+    tuş := KeyToSend.Value
+    if (tuş != "") {
+        SendEvent("{" tuş " down}")
+        Sleep(50)
+        SendEvent("{" tuş " up}")
     }
 }
 
-GuiClose(*) => ExitApp()
+; --- KISAYOLLAR ---
+~Esc & F12:: SafeExit()
+
+F3:: {
+    if (ModeDrop.Text = "Belirli Koordinat") {
+        MouseGetPos(&outX, &outY)
+        EditX.Value := outX, EditY.Value := outY
+    }
+}
+
+Hotkey(CurrentHotkey, (*) => ToggleLogic())
